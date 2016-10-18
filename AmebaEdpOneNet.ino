@@ -10,7 +10,7 @@
 #include "EdpKit.h"
 #include "util.h"
 
-#define _DEBUG
+#define _DEBUG	1
 
 // #define Socket(a,b,c)          socket(a,b,c)
 // #define Connect(a,b,c)         connect(a,b,c)
@@ -24,6 +24,7 @@
 // #define SetSockopt(a,b,c,d,e)  setsockopt((int)a,(int)b,(int)c,(const void *)d,(int)e)
 // #define GetHostByName(a)       gethostbyname((const char *)a)
 int32 DoSend(WiFiClient client, const uint8* buffer, uint32 len);
+int write_func(WiFiClient arg);
 
 char ssid[] = "HONOR";      //  your network SSID (name)
 char pass[] = "19920702";   // your network password
@@ -69,9 +70,8 @@ void hexdump(const unsigned char *buf, uint32 num)
 
 
 static char buffer[512];
-int recv_func(int arg)
+int recv_func(WiFiClient client)
 {
-    WiFiClient client = arg;
     int error = 0;
     int n, rtn;
     uint8 mtype, jsonorbin;
@@ -95,8 +95,8 @@ int recv_func(int arg)
     {
         //n = Recv(sockfd, buffer, 512, 0);
 		memset(buffer, 0, sizeof(buffer));
-		n = client.read(buffer, sizeof(buffer));
-        if(n <= 0)
+		n = client.read((uint8_t*)(&buffer[0]), sizeof(buffer));
+        if(n < 0)
         {
 			osMutexWait(uart_mutex_id, osWaitForever); 
             printf("recv error, bytes: %d\n", n);
@@ -202,10 +202,26 @@ int recv_func(int arg)
  */
 void recv_thread_func(void const *arg){	
 	vTaskSuspendAll();
+	void * temp = const_cast<void *> (arg);
 	//int sockfd = *(int*)arg;
-	WiFiClient client = *(WiFiClient*)arg;
+	WiFiClient * temp2 = static_cast<WiFiClient *>(temp);
+	WiFiClient client = *temp2;
 	xTaskResumeAll();
 	while(true){
+		// int ret = write_func(client);		
+        // if(ret < 0){
+            // Close(sockfd);
+			// client.stop();
+			// osMutexWait(uart_mutex_id, osWaitForever); 
+            // printf("\ntask delete!\n");
+			// osMutexRelease(uart_mutex_id);
+            // vTaskDelete(NULL);
+        // }
+        // if(ret){
+			// osMutexWait(uart_mutex_id, osWaitForever); 
+            // printf("\nupload data success!\n");
+			// osMutexRelease(uart_mutex_id);
+        // }
 	   recv_func(client);
 	}
 }
@@ -299,7 +315,7 @@ int32 DoSend(WiFiClient client, const uint8* buffer, uint32 len)
 
 int write_func(WiFiClient arg){
     unsigned int now = millis();
-    int client = arg;
+    WiFiClient client = arg;
     EdpPacket* send_pkg;
     cJSON * save_json;
     int32 ret = 0;
@@ -362,36 +378,42 @@ void edp_demo(void const *arg){
 			osMutexRelease(uart_mutex_id);
             vTaskDelete(NULL);
         }
-	//os_thread_create(recv_thread_func, (void*)&client, OS_PRIORITY_NORMAL, 4096);
+	void *socket = static_cast<void *>(&client); 
+	os_thread_create(recv_thread_func, socket, OS_PRIORITY_NORMAL, 4096);
     while(true){        
-		if(millis() - sendHeartDataTimer > 50000){//心跳
-//			send_pkg = PacketPing();
-//			ret = DoSend(sockfd,send_pkg->_data,send_pkg->_write_pos);
-//			DeleteBuffer(&send_pkg);
-//			printf("\npacketPing!\n");
+		if(millis() - sendHeartDataTimer > 100000){//心跳 num / 1000 s
+			send_pkg = PacketPing();
+			ret = DoSend(client,send_pkg->_data,send_pkg->_write_pos);
+			DeleteBuffer(&send_pkg);
+			printf("\npacketPing!\n");
 		}
         ret = write_func(client);		
         if(ret < 0){
-            //Close(sockfd);
 			client.stop();
+#if _DEBUG
 			osMutexWait(uart_mutex_id, osWaitForever); 
             printf("\ntask delete!\n");
 			osMutexRelease(uart_mutex_id);
+#endif
             vTaskDelete(NULL);
         }
         if(ret){
+#if _DEBUG			
 			osMutexWait(uart_mutex_id, osWaitForever); 
-            printf("\nupload data success!\n");
+            printf("\nupload data success!\n");		
 			osMutexRelease(uart_mutex_id);
+#endif	
         }
     }
     
 }
 
 void appTaskStart( void const *arg ){   
+#if _DEBUG
 	osMutexWait(uart_mutex_id, osWaitForever);
     printf("appTaskStart task start successful!\n");       
 	osMutexRelease(uart_mutex_id);     
+#endif	
     unsigned int count = 0;
     os_thread_create(edp_demo, NULL, OS_PRIORITY_NORMAL, 4096);   
     for(;;)  {        
