@@ -34,6 +34,8 @@ char pass[] = "19920702";   // your network password
 #define DEV_ID  "3507517"
 #define SERVER_ADDR     "183.230.40.39"//"jjfaedp.hedevice.com"    //OneNet EDP 服务器地址
 #define SERVER_PORT      876            //OneNet EDP 服务器端口
+
+#define NONE_DST_DEVICE	""
 int led_13=13;
 int sys_timer ;
 
@@ -338,8 +340,8 @@ int write_func(WiFiClient arg){
     printf("%s",p);
     free(p);
     
-    // send_pkg = PacketSavedataJson(DEV_ID,save_json,1,0);
-	send_pkg = PacketSavedataJson(NULL,save_json,1,0);
+    send_pkg = PacketSavedataJson(DEV_ID,save_json,1,0);
+	// send_pkg = PacketSavedataJson(NONE_DST_DEVICE,save_json,1,0);
     if(NULL == send_pkg){
         return -1;
     }    
@@ -382,6 +384,7 @@ void edp_demo(void const *arg){
 	os_thread_create(recv_thread_func, socket, OS_PRIORITY_NORMAL, 4096);
     while(true){        
 		if(millis() - sendHeartDataTimer > 100000){//心跳 num / 1000 s
+			sendHeartDataTimer = millis();
 			send_pkg = PacketPing();
 			ret = DoSend(client,send_pkg->_data,send_pkg->_write_pos);
 			DeleteBuffer(&send_pkg);
