@@ -9,6 +9,12 @@
 #define ERR_TIMEOUT         -5
 #define ERR_RECV            -6
 
+typedef struct{
+	osThreadId taskSend;
+	osThreadId taskRec;
+	void* client;	
+}DeleteTaskList;
+
 
 #ifdef __cpluscpluc
 extern  "C" {

@@ -36,8 +36,16 @@ char pass[] = "19920702";   // your network password
 #define SERVER_PORT      876            //OneNet EDP 服务器端口
 
 #define NONE_DST_DEVICE	""
-int led_13=13;
-int sys_timer ;
+#define ACK_TIME_OVERFLOW	2000
+/**
+ *每次发送完成时，判断sendTime与ackTime之间的时差，超过
+ *ACK_TIME_OVERFLOW时调用WiFi.disconnect()(触发守护任务执行守护操作条件)
+ *,每次判断完后给sendTime赋新值；收到ack时也要对actTime赋新值这样才能保证
+ *正常联网时不调用WiFi.disconnect()函数，断网时则调用
+*/
+long sendTime;											
+long ackTime;
+int sys_timer;
 
 //uart out mutex
 osMutexDef (uart_mutex);
@@ -104,6 +112,10 @@ int recv_func(WiFiClient client)
             printf("recv error, bytes: %d\n", n);
 			osMutexRelease(uart_mutex_id);
             error = -1;
+			if(client.available()){
+				client.stop();
+			}			
+			WiFi.disconnect();//触发守护任务条件
             break;
         }
 
@@ -131,6 +143,12 @@ int recv_func(WiFiClient client)
                     printf("recv connect resp, rtn: %d\n", rtn);
 					osMutexRelease(uart_mutex_id);
                     break;
+				case SAVEACK:
+					vTaskSuspendAll();
+					printf("\nrec adk for savedata function!\n");
+					xTaskResumeAll();
+					ackTime = millis();
+					break;
                 case PUSHDATA:
                     UnpackPushdata(pkg, &src_devid, &push_data, &push_datalen);
 					osMutexWait(uart_mutex_id, osWaitForever); 
@@ -176,6 +194,7 @@ int recv_func(WiFiClient client)
 					osMutexWait(uart_mutex_id, osWaitForever); 
                     printf("recv ping resp\n");
 					osMutexRelease(uart_mutex_id);
+					ackTime = millis();
                     break;
                 default:
 					osMutexWait(uart_mutex_id, osWaitForever); 
@@ -209,21 +228,8 @@ void recv_thread_func(void const *arg){
 	WiFiClient * temp2 = static_cast<WiFiClient *>(temp);
 	WiFiClient client = *temp2;
 	xTaskResumeAll();
+	ackTime = millis();
 	while(true){
-		// int ret = write_func(client);		
-        // if(ret < 0){
-            // Close(sockfd);
-			// client.stop();
-			// osMutexWait(uart_mutex_id, osWaitForever); 
-            // printf("\ntask delete!\n");
-			// osMutexRelease(uart_mutex_id);
-            // vTaskDelete(NULL);
-        // }
-        // if(ret){
-			// osMutexWait(uart_mutex_id, osWaitForever); 
-            // printf("\nupload data success!\n");
-			// osMutexRelease(uart_mutex_id);
-        // }
 	   recv_func(client);
 	}
 }
@@ -340,13 +346,21 @@ int write_func(WiFiClient arg){
     printf("%s",p);
     free(p);
     
-    send_pkg = PacketSavedataJson(DEV_ID,save_json,1,0);
-	// send_pkg = PacketSavedataJson(NONE_DST_DEVICE,save_json,1,0);
+    //send_pkg = PacketSavedataJson(DEV_ID,save_json,1,0);
+	send_pkg = PacketSavedataJson(NONE_DST_DEVICE,save_json,1,1);//0);
     if(NULL == send_pkg){
         return -1;
     }    
     /*发送edp数据包上传数据*/
     ret = DoSend(client,send_pkg->_data,send_pkg->_write_pos);
+	if(sendTime - ackTime > ACK_TIME_OVERFLOW){
+		if(client.available()){
+			client.stop();
+		}	
+		WiFi.disconnect();
+		printf("\nwifi force to disconnect\n");
+	}
+	sendTime = millis();
     DeleteBuffer(&send_pkg);
     cJSON_Delete(save_json);
     return ret; 
@@ -356,32 +370,47 @@ void edp_demo(void const *arg){
 	WiFiClient client;
 	int sendHeartDataTimer = millis();;
     EdpPacket * send_pkg;
+	DeleteTaskList *sockTaskList;
+	void* taskTemp = const_cast<void*>(arg);
+	sockTaskList = static_cast<DeleteTaskList *>(taskTemp);
     sys_timer = millis();
     //1.创建一个与服务器通讯的socket连接
     //sockfd = Open(SERVER_ADDR,SERVER_PORT);
 	if (!client.connect(SERVER_ADDR, SERVER_PORT)) {
-		vTaskDelete(NULL);
+		WiFi.disconnect();//触发守护任务条件
+		while(true);
+		//vTaskDelete(NULL);
 	}	
-    // if(sockfd < 0){
-        // vTaskDelete(NULL);
-    // }	
     //2.产生并发送edp设备连接请求的数据
     send_pkg = PacketConnect1(DEV_ID,API_KEY);
-    ret = DoSend(client,send_pkg->_data,send_pkg->_write_pos);
+    ret = DoSend(client,send_pkg->_data,send_pkg->_write_pos);//登录
     DeleteBuffer(&send_pkg);
 	osMutexWait(uart_mutex_id, osWaitForever); 
 	printf("\nfirst ret = \n%d",ret);	
 	osMutexRelease(uart_mutex_id);
 	if(ret < 0){
-            //Close(sockfd);
-			client.stop();
+			if(client.available()){
+				client.stop();
+			}	
 			osMutexWait(uart_mutex_id, osWaitForever); 
             printf("\nThe first send cause task delete!\n");
 			osMutexRelease(uart_mutex_id);
-            vTaskDelete(NULL);
+			WiFi.disconnect();
+			while(true);
+            //vTaskDelete(NULL);
         }
+	client.setRecvTimeout(0);//设置接收超时时间为永不超时，否则超时将会自动退出接收代码
 	void *socket = static_cast<void *>(&client); 
-	os_thread_create(recv_thread_func, socket, OS_PRIORITY_NORMAL, 4096);
+	sockTaskList->client = socket;
+	osThreadId idRecTask;
+	uint32 rec_id = os_thread_create(recv_thread_func, socket, OS_PRIORITY_NORMAL, 4096);
+	// void* temp = (unsigned int *)(&edp_demo_id);
+	// idSendTask = *(static_cast<osThreadId *>(temp));
+	// sockTaskList.taskSend = idSendTask;
+	sendTime = millis();
+	void* temp = (uint32 *)(&rec_id);
+	idRecTask = *(static_cast<osThreadId *>(temp));
+	sockTaskList->taskRec = idRecTask;
     while(true){        
 		if(millis() - sendHeartDataTimer > 100000){//心跳 num / 1000 s
 			sendHeartDataTimer = millis();
@@ -392,35 +421,82 @@ void edp_demo(void const *arg){
 		}
         ret = write_func(client);		
         if(ret < 0){
-			client.stop();
+			if(client.available()){
+				client.stop();
+			}	
 #if _DEBUG
 			osMutexWait(uart_mutex_id, osWaitForever); 
             printf("\ntask delete!\n");
 			osMutexRelease(uart_mutex_id);
 #endif
-            vTaskDelete(NULL);
+			WiFi.disconnect();
+            //vTaskDelete(NULL);
         }
         if(ret){
-#if _DEBUG			
+#if _DEBUG	
 			osMutexWait(uart_mutex_id, osWaitForever); 
-            printf("\nupload data success!\n");		
+            printf("\nupload data success!ret:%d\n",ret);		
 			osMutexRelease(uart_mutex_id);
 #endif	
         }
-    }
-    
+    }    
 }
 
-void appTaskStart( void const *arg ){   
+void appTaskStart( void const *arg ){ //守护任务，管理sendTask ， recTask  and socket
 #if _DEBUG
 	osMutexWait(uart_mutex_id, osWaitForever);
     printf("appTaskStart task start successful!\n");       
 	osMutexRelease(uart_mutex_id);     
 #endif	
     unsigned int count = 0;
-    os_thread_create(edp_demo, NULL, OS_PRIORITY_NORMAL, 4096);   
-    for(;;)  {        
-        delay(1000);
+	volatile bool hasDeleteTask = false;	
+	DeleteTaskList sockTaskList;
+    uint32 edp_demo_id = os_thread_create(edp_demo, static_cast<void*>(&sockTaskList), OS_PRIORITY_NORMAL, 4096);   
+	osThreadId idSendTask ;
+	void* temp = (unsigned int *)(&edp_demo_id);
+	idSendTask = *(static_cast<osThreadId *>(temp));
+	sockTaskList.taskSend = idSendTask;
+	sockTaskList.taskRec  = NULL;
+	sockTaskList.client	= NULL;
+    for(;;)  {  
+        delay(2000);		
+		if(WiFi.status() != WL_CONNECTED){//when the station disconnected from the ap，try to reconnect and delete tasks
+			if(!hasDeleteTask){
+				if(sockTaskList.taskSend != NULL){
+					vTaskDelete(sockTaskList.taskSend);
+					printf("\ntaskSend has delete!\n");
+					sockTaskList.taskSend = NULL;
+				}
+				if(sockTaskList.taskRec != NULL){
+					printf("\ntaskRec is not null,now delete it\n");					
+					vTaskDelete(sockTaskList.taskRec);
+					printf("\ndelete success!\n");
+					sockTaskList.taskRec = NULL;
+				}else{
+					printf("\ntaskRec is null\n");
+				}
+				if(sockTaskList.client != NULL){
+					if((*static_cast<WiFiClient*>(sockTaskList.client)).available()){
+						(*static_cast<WiFiClient*>(sockTaskList.client)).stop();
+					}
+					sockTaskList.client = NULL;
+				}
+				hasDeleteTask = true;
+			}			
+			Serial.print("Attempting to connect to Network named: ");
+			Serial.println(ssid);                   // print the network name (SSID);
+			// Connect to WPA/WPA2 network. Change this line if using open or WEP network:
+			status = WiFi.begin(ssid, pass);
+		}		   
+		if(WiFi.status() == WL_CONNECTED){
+			if(hasDeleteTask){
+				edp_demo_id = os_thread_create(edp_demo, static_cast<void*>(&sockTaskList), OS_PRIORITY_NORMAL, 4096);
+				void* temp = (unsigned long *)(&edp_demo_id);
+				idSendTask = *(static_cast<osThreadId *>(temp));
+				sockTaskList.taskSend = idSendTask;
+				hasDeleteTask = false;
+			}						
+		}
     }
 }
 void setup() {	
@@ -437,9 +513,10 @@ void setup() {
     delay(1000);
   }
     pinMode(13,OUTPUT);     
-    delay(200);  
+	pinMode(12,OUTPUT);
 	uart_mutex_id = osMutexCreate(osMutex(uart_mutex));  
-    os_thread_create(appTaskStart, NULL, OS_PRIORITY_NORMAL, 2048);  
+    os_thread_create(appTaskStart, NULL, OS_PRIORITY_NORMAL, 2048); 	
+	osThreadSetPriority(NULL,osPriorityNormal);
 }
 
 void loop(){
