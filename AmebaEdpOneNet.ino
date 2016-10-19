@@ -78,6 +78,9 @@ void hexdump(const unsigned char *buf, uint32 num)
 	osMutexRelease(uart_mutex_id);
 }
 
+void messageHandler(cJSON* json_root){
+	
+}
 
 static char buffer[512];
 int recv_func(WiFiClient client)
@@ -145,14 +148,14 @@ int recv_func(WiFiClient client)
                     break;
 				case SAVEACK:
 					vTaskSuspendAll();
-					printf("\nrec adk for savedata function!\n");
+					printf("\nrec ack for savedata function!\n");
 					xTaskResumeAll();
 					ackTime = millis();
 					break;
                 case PUSHDATA:
                     UnpackPushdata(pkg, &src_devid, &push_data, &push_datalen);
 					osMutexWait(uart_mutex_id, osWaitForever); 
-                    printf("recv push data, src_devid: %s, push_data: %s, len: %d\n",
+                    printf("\nrecv push data, src_devid: %s, push_data: %s, len: %d\n",
                            src_devid, push_data, push_datalen);
 					osMutexRelease(uart_mutex_id);
                     free(src_devid);
@@ -170,6 +173,7 @@ int recv_func(WiFiClient client)
                             printf("recv save data json, ret = %d, src_devid: %s, json: %s\n",
                                    ret, src_devid, save_json_str);
 						    osMutexRelease(uart_mutex_id);
+							messageHandler(save_json);
                             free(save_json_str);
                             cJSON_Delete(save_json);
                         }
@@ -389,16 +393,16 @@ void edp_demo(void const *arg){
 	printf("\nfirst ret = \n%d",ret);	
 	osMutexRelease(uart_mutex_id);
 	if(ret < 0){
-			if(client.available()){
-				client.stop();
-			}	
-			osMutexWait(uart_mutex_id, osWaitForever); 
-            printf("\nThe first send cause task delete!\n");
-			osMutexRelease(uart_mutex_id);
-			WiFi.disconnect();
-			while(true);
-            //vTaskDelete(NULL);
-        }
+		if(client.available()){
+			client.stop();
+		}	
+		osMutexWait(uart_mutex_id, osWaitForever); 
+		printf("\nThe first send cause task delete!\n");
+		osMutexRelease(uart_mutex_id);
+		WiFi.disconnect();
+		while(true);
+		//vTaskDelete(NULL);
+	}
 	client.setRecvTimeout(0);//设置接收超时时间为永不超时，否则超时将会自动退出接收代码
 	void *socket = static_cast<void *>(&client); 
 	sockTaskList->client = socket;
@@ -411,6 +415,7 @@ void edp_demo(void const *arg){
 	void* temp = (uint32 *)(&rec_id);
 	idRecTask = *(static_cast<osThreadId *>(temp));
 	sockTaskList->taskRec = idRecTask;
+	digitalWrite(13,HIGH);
     while(true){        
 		if(millis() - sendHeartDataTimer > 100000){//心跳 num / 1000 s
 			sendHeartDataTimer = millis();
@@ -482,6 +487,7 @@ void appTaskStart( void const *arg ){ //守护任务，管理sendTask ， recTas
 					sockTaskList.client = NULL;
 				}
 				hasDeleteTask = true;
+				digitalWrite(13,LOW);
 			}			
 			Serial.print("Attempting to connect to Network named: ");
 			Serial.println(ssid);                   // print the network name (SSID);
@@ -514,6 +520,7 @@ void setup() {
   }
     pinMode(13,OUTPUT);     
 	pinMode(12,OUTPUT);
+	digitalWrite(12,HIGH);
 	uart_mutex_id = osMutexCreate(osMutex(uart_mutex));  
     os_thread_create(appTaskStart, NULL, OS_PRIORITY_NORMAL, 2048); 	
 	osThreadSetPriority(NULL,osPriorityNormal);
