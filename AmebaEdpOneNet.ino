@@ -10,7 +10,7 @@
 #include "EdpKit.h"
 #include "util.h"
 
-#define _DEBUG	1
+//#define _DEBUG	
 
 // #define Socket(a,b,c)          socket(a,b,c)
 // #define Connect(a,b,c)         connect(a,b,c)
@@ -78,8 +78,35 @@ void hexdump(const unsigned char *buf, uint32 num)
 	osMutexRelease(uart_mutex_id);
 }
 
-void messageHandler(cJSON* json_root){
+void messageHandler(cJSON* jsonRoot){
+	long time = micros();
+	vTaskSuspendAll();	
+    cJSON * pJson ;//= cJSON_CreateObject();
+	cJSON * datastreams = jsonRoot;
+    cJSON * contentDatastreams ;//= cJSON_CreateArray();   
+    cJSON * datapoints ;//= cJSON_CreateObject();  
+    cJSON * datapointsArray = cJSON_CreateArray();
+	contentDatastreams = cJSON_GetObjectItem(datastreams,"datastreams");
+	//printf("\ncontentDatastreams:%s\n",cJSON_PrintUnformatted(contentDatastreams));
 	
+	datapoints = cJSON_GetArrayItem(contentDatastreams,0);
+	//printf("\ndatapoints:%s\n",cJSON_PrintUnformatted(datapoints));
+	cJSON* temp	= cJSON_GetObjectItem(datapoints,"id");	
+	if(strcmp("LEDCTRL",temp->valuestring) != 0){
+		//printf("\nid - LEDCTRL:%d\n",strcmp("LEDCTRL",temp->valuestring));
+		return;
+	}
+	pJson = cJSON_GetObjectItem(datapoints,"datapoints");
+	//printf("\npJson:%s\n",cJSON_PrintUnformatted(pJson));	
+	cJSON * sJSON = cJSON_GetArrayItem(pJson,0);
+	//printf("\nsJSON:%s\n",cJSON_PrintUnformatted(sJSON));
+	temp	= cJSON_GetObjectItem(sJSON,"value");
+	if(strcmp("LEDCTRL",temp->valuestring) == 0){
+		digitalWrite(12,!digitalRead(12));
+		//printf("\nchange led state!\n");
+	}
+	xTaskResumeAll();
+	printf("\nwaste time:%d\n",micros() - time);
 }
 
 static char buffer[512];
@@ -175,6 +202,7 @@ int recv_func(WiFiClient client)
 						    osMutexRelease(uart_mutex_id);
 							messageHandler(save_json);
                             free(save_json_str);
+							messageHandler(save_json);
                             cJSON_Delete(save_json);
                         }
                         else if(jsonorbin == 0x02)
@@ -414,8 +442,8 @@ void edp_demo(void const *arg){
 	sendTime = millis();
 	void* temp = (uint32 *)(&rec_id);
 	idRecTask = *(static_cast<osThreadId *>(temp));
-	sockTaskList->taskRec = idRecTask;
-	digitalWrite(13,HIGH);
+	sockTaskList->taskRec = idRecTask;	
+	digitalWrite(12,HIGH);
     while(true){        
 		if(millis() - sendHeartDataTimer > 100000){//心跳 num / 1000 s
 			sendHeartDataTimer = millis();
@@ -429,7 +457,7 @@ void edp_demo(void const *arg){
 			if(client.available()){
 				client.stop();
 			}	
-#if _DEBUG
+#ifdef _DEBUG
 			osMutexWait(uart_mutex_id, osWaitForever); 
             printf("\ntask delete!\n");
 			osMutexRelease(uart_mutex_id);
@@ -438,7 +466,7 @@ void edp_demo(void const *arg){
             //vTaskDelete(NULL);
         }
         if(ret){
-#if _DEBUG	
+#ifdef _DEBUG	
 			osMutexWait(uart_mutex_id, osWaitForever); 
             printf("\nupload data success!ret:%d\n",ret);		
 			osMutexRelease(uart_mutex_id);
@@ -448,7 +476,7 @@ void edp_demo(void const *arg){
 }
 
 void appTaskStart( void const *arg ){ //守护任务，管理sendTask ， recTask  and socket
-#if _DEBUG
+#ifdef _DEBUG
 	osMutexWait(uart_mutex_id, osWaitForever);
     printf("appTaskStart task start successful!\n");       
 	osMutexRelease(uart_mutex_id);     
@@ -487,15 +515,18 @@ void appTaskStart( void const *arg ){ //守护任务，管理sendTask ， recTas
 					sockTaskList.client = NULL;
 				}
 				hasDeleteTask = true;
-				digitalWrite(13,LOW);
+				digitalWrite(12,LOW);
+				digitalWrite(13,LOW);				
 			}			
 			Serial.print("Attempting to connect to Network named: ");
 			Serial.println(ssid);                   // print the network name (SSID);
 			// Connect to WPA/WPA2 network. Change this line if using open or WEP network:
 			status = WiFi.begin(ssid, pass);
+			delay(1000);
 		}		   
 		if(WiFi.status() == WL_CONNECTED){
 			if(hasDeleteTask){
+				digitalWrite(13,HIGH);
 				edp_demo_id = os_thread_create(edp_demo, static_cast<void*>(&sockTaskList), OS_PRIORITY_NORMAL, 4096);
 				void* temp = (unsigned long *)(&edp_demo_id);
 				idSendTask = *(static_cast<osThreadId *>(temp));
@@ -520,7 +551,7 @@ void setup() {
   }
     pinMode(13,OUTPUT);     
 	pinMode(12,OUTPUT);
-	digitalWrite(12,HIGH);
+	digitalWrite(13,HIGH);
 	uart_mutex_id = osMutexCreate(osMutex(uart_mutex));  
     os_thread_create(appTaskStart, NULL, OS_PRIORITY_NORMAL, 2048); 	
 	osThreadSetPriority(NULL,osPriorityNormal);
