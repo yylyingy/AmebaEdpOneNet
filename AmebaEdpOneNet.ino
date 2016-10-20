@@ -78,6 +78,7 @@ void hexdump(const unsigned char *buf, uint32 num)
 	osMutexRelease(uart_mutex_id);
 }
 
+
 void messageHandler(cJSON* jsonRoot){
 	long time = micros();
 	vTaskSuspendAll();	
@@ -442,6 +443,7 @@ void edp_demo(void const *arg){
 	sendTime = millis();
 	void* temp = (uint32 *)(&rec_id);
 	idRecTask = *(static_cast<osThreadId *>(temp));
+
 	sockTaskList->taskRec = idRecTask;	
 	digitalWrite(12,HIGH);
     while(true){        
@@ -514,9 +516,10 @@ void appTaskStart( void const *arg ){ //守护任务，管理sendTask ， recTas
 					}
 					sockTaskList.client = NULL;
 				}
-				hasDeleteTask = true;
+
 				digitalWrite(12,LOW);
-				digitalWrite(13,LOW);				
+				digitalWrite(13,LOW);
+				
 			}			
 			Serial.print("Attempting to connect to Network named: ");
 			Serial.println(ssid);                   // print the network name (SSID);
@@ -551,6 +554,7 @@ void setup() {
   }
     pinMode(13,OUTPUT);     
 	pinMode(12,OUTPUT);
+
 	digitalWrite(13,HIGH);
 	uart_mutex_id = osMutexCreate(osMutex(uart_mutex));  
     os_thread_create(appTaskStart, NULL, OS_PRIORITY_NORMAL, 2048); 	
