@@ -143,9 +143,9 @@ int recv_func(WiFiClient client)
             printf("recv error, bytes: %d\n", n);
 			osMutexRelease(uart_mutex_id);
             error = -1;
-			if(client.available()){
-				client.stop();
-			}			
+//			if(client.available()){
+//				client.stop();
+//			}			
 			WiFi.disconnect();//触发守护任务条件
             break;
         }
@@ -386,9 +386,9 @@ int write_func(WiFiClient arg){
     /*发送edp数据包上传数据*/
     ret = DoSend(client,send_pkg->_data,send_pkg->_write_pos);
 	if(sendTime - ackTime > ACK_TIME_OVERFLOW){
-		if(client.available()){
-			client.stop();
-		}	
+//		if(client.available()){
+//			client.stop();
+//		}	
 		WiFi.disconnect();
 		printf("\nwifi force to disconnect\n");
 	}
@@ -421,9 +421,9 @@ void edp_demo(void const *arg){
 	printf("\nfirst ret = \n%d",ret);	
 	osMutexRelease(uart_mutex_id);
 	if(ret < 0){
-		if(client.available()){
-			client.stop();
-		}	
+//		if(client.available()){
+//			client.stop();
+//		}	
 		osMutexWait(uart_mutex_id, osWaitForever); 
 		printf("\nThe first send cause task delete!\n");
 		osMutexRelease(uart_mutex_id);
@@ -455,9 +455,9 @@ void edp_demo(void const *arg){
 		}
         ret = write_func(client);		
         if(ret < 0){
-			if(client.available()){
-				client.stop();
-			}	
+//			if(client.available()){
+//				client.stop();
+//			}	
 #ifdef _DEBUG
 			osMutexWait(uart_mutex_id, osWaitForever); 
             printf("\ntask delete!\n");
@@ -518,6 +518,7 @@ void appTaskStart( void const *arg ){ //守护任务，管理sendTask ， recTas
 
 				digitalWrite(12,LOW);
 				digitalWrite(13,LOW);
+                hasDeleteTask = true;
 				
 			}			
 			Serial.print("Attempting to connect to Network named: ");
