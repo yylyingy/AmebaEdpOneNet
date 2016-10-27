@@ -10,7 +10,7 @@
 #include "EdpKit.h"
 #include "util.h"
 
-//#define _DEBUG	
+#define _DEBUG	
 
 // #define Socket(a,b,c)          socket(a,b,c)
 // #define Connect(a,b,c)         connect(a,b,c)
@@ -78,10 +78,9 @@ void hexdump(const unsigned char *buf, uint32 num)
 	osMutexRelease(uart_mutex_id);
 }
 
-
+int ledOn = LOW;
 void messageHandler(cJSON* jsonRoot){
 	long time = micros();
-	vTaskSuspendAll();	
     cJSON * pJson ;//= cJSON_CreateObject();
 	cJSON * datastreams = jsonRoot;
     cJSON * contentDatastreams ;//= cJSON_CreateArray();   
@@ -102,11 +101,12 @@ void messageHandler(cJSON* jsonRoot){
 	cJSON * sJSON = cJSON_GetArrayItem(pJson,0);
 	//printf("\nsJSON:%s\n",cJSON_PrintUnformatted(sJSON));
 	temp	= cJSON_GetObjectItem(sJSON,"value");
-	if(strcmp("LEDCTRL",temp->valuestring) == 0){
-		digitalWrite(12,!digitalRead(12));
-		//printf("\nchange led state!\n");
+	if(strcmp("LEDCTRL",temp->valuestring) == 0){        
+        digitalWrite(11,ledOn);       
+        ledOn = !ledOn;
+		
+		printf("\nchange led state!%d\n",ledOn);
 	}
-	xTaskResumeAll();
 	printf("\nwaste time:%d\n",micros() - time);
 }
 
@@ -201,7 +201,6 @@ int recv_func(WiFiClient client)
                             printf("recv save data json, ret = %d, src_devid: %s, json: %s\n",
                                    ret, src_devid, save_json_str);
 						    osMutexRelease(uart_mutex_id);
-							messageHandler(save_json);
                             free(save_json_str);
 							messageHandler(save_json);
                             cJSON_Delete(save_json);
@@ -554,6 +553,7 @@ void setup() {
   }
     pinMode(13,OUTPUT);     
 	pinMode(12,OUTPUT);
+    pinMode(11,OUTPUT);
 
 	digitalWrite(13,HIGH);
 	uart_mutex_id = osMutexCreate(osMutex(uart_mutex));  
