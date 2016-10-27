@@ -35,14 +35,16 @@ char pass[] = "19920702";   // your network password
 #define SERVER_ADDR     "183.230.40.39"//"jjfaedp.hedevice.com"    //OneNet EDP 服务器地址
 #define SERVER_PORT      876            //OneNet EDP 服务器端口
 
-#define NONE_DST_DEVICE	""
-#define ACK_TIME_OVERFLOW	2000
+char *appID;
+bool isNeedUploadToApp = false;
 /**
  *每次发送完成时，判断sendTime与ackTime之间的时差，超过
  *ACK_TIME_OVERFLOW时调用WiFi.disconnect()(触发守护任务执行守护操作条件)
  *,每次判断完后给sendTime赋新值；收到ack时也要对actTime赋新值这样才能保证
  *正常联网时不调用WiFi.disconnect()函数，断网时则调用
 */
+#define NONE_DST_DEVICE    ""
+#define ACK_TIME_OVERFLOW   5000
 long sendTime;											
 long ackTime;
 int sys_timer;
@@ -175,10 +177,10 @@ int recv_func(WiFiClient client)
 					osMutexRelease(uart_mutex_id);
                     break;
 				case SAVEACK:
+                    ackTime = millis();
 					vTaskSuspendAll();
 					printf("\nrec ack for savedata function!\n");
-					xTaskResumeAll();
-					ackTime = millis();
+					xTaskResumeAll();					
 					break;
                 case PUSHDATA:
                     UnpackPushdata(pkg, &src_devid, &push_data, &push_datalen);
@@ -201,6 +203,9 @@ int recv_func(WiFiClient client)
                             printf("recv save data json, ret = %d, src_devid: %s, json: %s\n",
                                    ret, src_devid, save_json_str);
 						    osMutexRelease(uart_mutex_id);
+                            appID = (char *)malloc(strlen(src_devid));
+                            strcpy(appID,src_devid);
+                            isNeedUploadToApp = true;
                             free(save_json_str);
 							messageHandler(save_json);
                             cJSON_Delete(save_json);
@@ -360,7 +365,10 @@ int write_func(WiFiClient arg){
     cJSON * save_json;
     int32 ret = 0;
     char text[25] = {0};
-    /*push data every 2 seconds*/
+    if(isNeedUploadToApp){
+        sys_timer = now - 5001;//直接跳过等待两秒时间，当收到app控制信息时，需要马上上报数据
+    }
+    /*push data every 5 seconds*/
     if(now - sys_timer < 5000){
         return 0;
     }
@@ -379,7 +387,13 @@ int write_func(WiFiClient arg){
     free(p);
     
     //send_pkg = PacketSavedataJson(DEV_ID,save_json,1,0);
-	send_pkg = PacketSavedataJson(NONE_DST_DEVICE,save_json,1,1);//0);
+    if(isNeedUploadToApp){
+        send_pkg = PacketSavedataJson(appID,save_json,1,1);
+        isNeedUploadToApp = false;
+        free(appID);
+    }else{
+	    send_pkg = PacketSavedataJson(NONE_DST_DEVICE,save_json,1,1);//0);
+    }
     if(NULL == send_pkg){
         return -1;
     }    

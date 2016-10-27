@@ -1301,7 +1301,7 @@ cJSON * makeUploadDataJson(){
         return NULL;
     } 
     extern sys_timer;    
-    cJSON_AddBoolToObject(pJson,"value",1);//数据点的值  
+    cJSON_AddBoolToObject(pJson,"value",digitalRead(11));//数据点的值  
     cJSON_AddItemToArray(datapointsArray,pJson);
     cJSON_AddStringToObject(datapoints,"id","LEDStatus");//数据点的名字
     cJSON_AddItemToObject(datapoints,"datapoints",datapointsArray);
